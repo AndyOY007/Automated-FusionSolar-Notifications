@@ -1,0 +1,28 @@
+# Copy this file to ".env" and fill in your details.
+
+# --- FusionSolar Northbound API ----------------------------------------
+# These come from the Northbound API account your company admin creates in
+# the FusionSolar portal under System > Company Management > Northbound
+# Management -- NOT your personal FusionSolar login.
+
+# The same subdomain/region you use to log into the FusionSolar web portal.
+# No trailing slash, no /thirdData suffix.
+# Example: https://sg5.fusionsolar.huawei.com
+FUSIONSOLAR_BASE_URL=https://sg5.fusionsolar.huawei.com
+
+# Northbound API account username
+FUSIONSOLAR_USERNAME=your_api_account_username
+
+# Northbound API account password (called "systemCode" by the API)
+FUSIONSOLAR_SYSTEM_CODE=your_api_account_password
+
+# --- Telegram Bot -------------------------------------------------------
+# 1. Create a bot via @BotFather on Telegram and copy the token below.
+# 2. Start a chat with your bot (search its username and press Start).
+# 3. Visit https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates in your
+#    browser to find your chat ID under "chat": {"id": <number>}.
+#    For group chats the ID will be a negative number.
+# 4. Run: python realtime_status.py --test-telegram  to verify it works.
+
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGhIJklmNoPQRstuVWXyz
+TELEGRAM_CHAT_ID=123456789

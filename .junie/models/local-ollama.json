@@ -1,0 +1,8 @@
+{
+  "baseUrl": "http://localhost:11434/v1/responses",
+  "id": "qwen2.5-coder:latest",
+  "apiType": "OpenAIResponses",
+  "fasterModel": {
+    "id": "qwen2.5-coder:1.5b"
+  }
+}
