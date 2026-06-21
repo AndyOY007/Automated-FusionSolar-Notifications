@@ -174,6 +174,3 @@ journalctl -u fusionsolar -f
 - `.env` holds live credentials and **must not be committed**. It's covered by `.gitignore` — double check before pushing.
 - If a bot token or API credential is ever accidentally exposed (commit history, screenshot, etc.), rotate it immediately — Telegram via BotFather (`/revoke` or `/token`), FusionSolar via your company admin resetting the Northbound account password.
 
-## License
-
-Internal tool — add a license here if you intend to make the repo public.
