@@ -105,6 +105,53 @@ def build_notifier_from_env() -> TelegramNotifier:
 # Message formatters
 # ---------------------------------------------------------------------------
 
+def format_daily_energy(
+    snapshots: dict,
+    plant_names: dict,
+    timestamp: Optional[float] = None,
+) -> str:
+    """Formats a get_daily_energy() result into a Telegram HTML message.
+
+    Intended to be sent once daily at 18:00 as a day-so-far energy summary.
+
+    snapshots:   {stationCode: {pv_kwh, grid_export_kwh, grid_import_kwh, load_kwh}}
+                 as returned by client.get_daily_energy()
+    plant_names: {stationCode: plantName} -- from the plant list
+    """
+    ts = timestamp or time.time()
+    date_str = time.strftime("%d %b %Y", time.localtime(ts))
+
+    total_pv     = sum(s.get("pv_kwh",          0.0) for s in snapshots.values())
+    total_export = sum(s.get("grid_export_kwh", 0.0) for s in snapshots.values())
+    total_import = sum(s.get("grid_import_kwh", 0.0) for s in snapshots.values())
+    total_load   = sum(s.get("load_kwh",        0.0) for s in snapshots.values())
+
+    lines = [
+        f"<b>⚡ Daily Energy Summary — {date_str}</b>",
+        "",
+        f"🌞 PV generated    :  <b>{total_pv:.1f} kWh</b>",
+        f"↗ Grid exported   :  <b>{total_export:.1f} kWh</b>",
+        f"↙ Grid imported   :  <b>{total_import:.1f} kWh</b>",
+        f"🏠 Load consumed   :  <b>{total_load:.1f} kWh</b>",
+        "",
+        "─────────────────────",
+    ]
+
+    for code, data in snapshots.items():
+        name   = plant_names.get(code, code)
+        pv     = data.get("pv_kwh",          0.0)
+        export = data.get("grid_export_kwh", 0.0)
+        imp    = data.get("grid_import_kwh", 0.0)
+        load   = data.get("load_kwh",        0.0)
+
+        lines.append(
+            f"<b>{name}</b>\n"
+            f"  🌞 {pv:.1f}  |  ↗ {export:.1f}  |  ↙ {imp:.1f}  |  🏠 {load:.1f} kWh"
+        )
+
+    return "\n".join(lines)
+
+
 def format_fleet_snapshot(
     snapshots: dict,
     plant_names: dict,

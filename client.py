@@ -621,6 +621,59 @@ class FusionSolarNBIClient:
 
         return snapshots
 
+    def get_daily_energy(self, station_codes: list[str]) -> dict:
+        """Fetches today's cumulative energy totals (kWh) for each plant.
+
+        Uses /thirdData/getStationRealKpi (the same endpoint as the health
+        state check), which includes daily energy accumulators alongside the
+        real-time health fields. No separate API call type is needed.
+
+        Returns a dict keyed by stationCode:
+            {
+                "pv_kwh":          float,  # PV generated today
+                "grid_export_kwh": float,  # energy pushed to grid today
+                "grid_import_kwh": float,  # energy drawn from grid today (derived)
+                "load_kwh":        float,  # load consumed today
+            }
+
+        Field notes (confirmed against live getStationRealKpi response):
+            day_power          -- inverter AC output since midnight (kWh)
+            day_on_grid_energy -- energy exported to grid today (kWh); always >= 0
+            day_use_energy     -- site load consumption today (kWh)
+
+        Grid import is not a direct API field -- it is derived from energy balance:
+            grid_import = load - pv + grid_export
+        i.e. whatever the load consumed that PV didn't cover, plus whatever was
+        exported on top of self-consumption, must have come from the grid.
+        Clamped to 0 for fully off-grid sites where floating-point rounding can
+        produce a tiny negative value.
+        """
+        results: dict[str, dict] = {}
+        for chunk in _chunked(station_codes, MAX_PLANTS_PER_CALL):
+            resp = self.get_real_time_plant_data(chunk)
+            for item in resp.get("data") or []:
+                code = item.get("stationCode")
+                if not code:
+                    continue
+                dim = item.get("dataItemMap") or {}
+
+                pv_kwh          = round(float(dim.get("day_power",          0) or 0), 2)
+                grid_export_kwh = round(float(dim.get("day_on_grid_energy", 0) or 0), 2)
+                load_kwh        = round(float(dim.get("day_use_energy",     0) or 0), 2)
+                # Derived: load = pv_self_consumed + grid_import, and
+                # pv_self_consumed = pv - grid_export, so:
+                # grid_import = load - (pv - grid_export) = load - pv + grid_export
+                grid_import_kwh = max(0.0, round(load_kwh - pv_kwh + grid_export_kwh, 2))
+
+                results[code] = {
+                    "pv_kwh":          pv_kwh,
+                    "grid_export_kwh": grid_export_kwh,
+                    "grid_import_kwh": grid_import_kwh,
+                    "load_kwh":        load_kwh,
+                }
+
+        return results
+
     def get_plant_snapshot(self, station_code: str, alarm_lookback_hours: int = 24) -> dict:
         """Builds a real-time status snapshot for ONE plant. If you're
         checking more than one plant, use get_fleet_snapshot() instead --
