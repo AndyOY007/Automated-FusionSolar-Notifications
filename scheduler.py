@@ -35,7 +35,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from client import FusionSolarNBIClient, FusionSolarAPIError, build_client_from_env
-from telegram_notify import build_notifier_from_env, format_fleet_snapshot, format_daily_energy
+from telegram_notify import build_notifier_from_env, format_fleet_snapshot
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,22 +62,16 @@ SCHEDULE_CONFIG = [
     {
         "name": "weekday_every_30min",
         "day_of_week": "mon-fri",
-        "hour": "7-17",        # all 24 hours -- narrow this if you only want e.g. "5-19"
+        "hour": "*",        # all 24 hours -- narrow this if you only want e.g. "5-19"
         "minute": "*/30",
     },
     {
         "name": "weekend_hourly",
         "day_of_week": "sat,sun",
-        "hour": "8-16",
+        "hour": "*",
         "minute": "0",       # once per hour, on the hour
     },
 ]
-
-# Daily energy summary fires at 18:00 UTC every day (Ghana is UTC+0, so
-# this is 6:00 PM local time). Kept separate from SCHEDULE_CONFIG above
-# because it calls a different job function and a different API endpoint.
-DAILY_ENERGY_HOUR = 18
-DAILY_ENERGY_MINUTE = 0
 
 # Lookback window for active alarms included in each report
 ALARM_LOOKBACK_HOURS = 24
@@ -105,6 +99,8 @@ def run_report_job() -> None:
     """The actual job: fetch the fleet snapshot, send it to Telegram.
     Any failure here is logged but does not crash the scheduler -- the
     next scheduled run will simply try again."""
+    import requests.exceptions
+
     started_at = datetime.now(timezone.utc)
     logger.info("Running scheduled fleet report...")
 
@@ -120,10 +116,31 @@ def run_report_job() -> None:
         all_plants = client.get_all_plants()
         station_codes = [p["plantCode"] for p in all_plants]
         plant_names = {p["plantCode"]: p["plantName"] for p in all_plants}
-
         snapshots = client.get_fleet_snapshot(station_codes, alarm_lookback_hours=ALARM_LOOKBACK_HOURS)
+
     except FusionSolarAPIError as exc:
-        logger.error("Fleet snapshot failed: %s", exc)
+        logger.error("Fleet snapshot failed (API error %s): %s", exc.fail_code, exc.message)
+        return
+
+    except requests.exceptions.ConnectionError as exc:
+        # DNS failure, refused connection, network unreachable -- transient,
+        # will recover on the next scheduled run automatically.
+        logger.warning(
+            "Fleet snapshot failed -- network unreachable (transient). "
+            "Will retry at next scheduled run. Detail: %s", exc
+        )
+        return
+
+    except requests.exceptions.Timeout:
+        logger.warning(
+            "Fleet snapshot failed -- request timed out. "
+            "Will retry at next scheduled run."
+        )
+        return
+
+    except requests.exceptions.RequestException as exc:
+        # Catch-all for any other requests-level error (SSL, proxy, etc.)
+        logger.error("Fleet snapshot failed -- unexpected network error: %s", exc)
         return
 
     message = format_fleet_snapshot(snapshots, plant_names)
@@ -134,42 +151,6 @@ def run_report_job() -> None:
         logger.info("Report sent successfully (%.1fs).", elapsed)
     else:
         logger.error("Report generated but Telegram send failed (%.1fs).", elapsed)
-
-
-def run_daily_energy_job() -> None:
-    """Fires once daily at 18:00 -- sends today's PV / grid / load kWh
-    totals to Telegram. Uses a separate API endpoint (getStationKpi) from
-    the real-time snapshot job, so it never interferes with the regular
-    reporting schedule."""
-    started_at = datetime.now(timezone.utc)
-    logger.info("Running daily energy summary...")
-
-    try:
-        client = build_client_from_env()
-        notifier = build_notifier_from_env()
-    except KeyError as exc:
-        logger.error("Missing environment variable %s -- check your .env file.", exc)
-        return
-
-    try:
-        client.login()
-        all_plants = client.get_all_plants()
-        station_codes = [p["plantCode"] for p in all_plants]
-        plant_names = {p["plantCode"]: p["plantName"] for p in all_plants}
-
-        snapshots = client.get_daily_energy(station_codes)
-    except FusionSolarAPIError as exc:
-        logger.error("Daily energy fetch failed: %s", exc)
-        return
-
-    message = format_daily_energy(snapshots, plant_names)
-    ok = notifier.send_message(message)
-
-    elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
-    if ok:
-        logger.info("Daily energy summary sent successfully (%.1fs).", elapsed)
-    else:
-        logger.error("Daily energy summary generated but Telegram send failed (%.1fs).", elapsed)
 
 
 def build_scheduler() -> BlockingScheduler:
@@ -186,17 +167,6 @@ def build_scheduler() -> BlockingScheduler:
             "Scheduled rule '%s': day_of_week=%s hour=%s minute=%s",
             rule["name"], rule["day_of_week"], rule["hour"], rule["minute"],
         )
-    # Daily energy summary at 18:00 UTC every day
-    scheduler.add_job(
-        run_daily_energy_job,
-        CronTrigger(hour=DAILY_ENERGY_HOUR, minute=DAILY_ENERGY_MINUTE, timezone="UTC"),
-        id="daily_energy_summary",
-        name="daily_energy_summary",
-    )
-    logger.info(
-        "Scheduled rule 'daily_energy_summary': every day at %02d:%02d UTC",
-        DAILY_ENERGY_HOUR, DAILY_ENERGY_MINUTE,
-    )
     return scheduler
 
 
@@ -205,13 +175,7 @@ def main() -> int:
     parser.add_argument(
         "--run-once",
         action="store_true",
-        help="Run the fleet snapshot report job immediately, once, then exit.",
-    )
-    parser.add_argument(
-        "--run-daily-energy-once",
-        action="store_true",
-        help="Run the daily energy summary job immediately, once, then exit "
-             "(useful for testing the 18:00 job without waiting for the trigger).",
+        help="Run the report job immediately, once, then exit (no scheduling).",
     )
     args = parser.parse_args()
 
@@ -219,10 +183,6 @@ def main() -> int:
 
     if args.run_once:
         run_report_job()
-        return 0
-
-    if args.run_daily_energy_once:
-        run_daily_energy_job()
         return 0
 
     scheduler = build_scheduler()
