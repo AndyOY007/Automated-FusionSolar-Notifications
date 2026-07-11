@@ -297,7 +297,7 @@ def run_llm_report_job() -> None:
         report_text = _fallback_template_report(summary)
 
     # ── Step 3: send to Telegram ──────────────────────────────────────
-    ok = notifier.send_message(report_text, parse_mode=None)  # plain text, no HTML
+    ok = notifier.send_message(report_text, parse_mode="HTML")  # plain text, no HTML
 
     elapsed = (datetime.now(timezone.utc) - started_at).total_seconds()
     if ok:
