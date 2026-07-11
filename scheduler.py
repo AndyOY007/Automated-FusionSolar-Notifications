@@ -60,13 +60,13 @@ SCHEDULE_CONFIG = [
     {
         "name": "weekday_every_30min",
         "day_of_week": "mon-fri",
-        "hour": "*",
+        "hour": "7-18",
         "minute": "*/30",
     },
     {
         "name": "weekend_hourly",
         "day_of_week": "sat,sun",
-        "hour": "*",
+        "hour": "8-16",
         "minute": "0",
     },
 ]
